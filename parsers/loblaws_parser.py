@@ -1,4 +1,7 @@
 import re
+from datetime import datetime
+import hashlib
+import json
 from helpers import isfloat
 
 
@@ -77,22 +80,27 @@ class LoblawsParser:
                     if None not in (total, sku, product_title, product_price):
                         formatted_product_price = round(float(product_price.replace(",", ".")), 2)
                         formatted_total = round(float(total.replace(",", ".")), 2)
+
                         product = {
                             "sku": sku,
                             "price": formatted_product_price,
-                            "product_title": product_title,
+                            "productTitle": product_title,
                             "total": formatted_total,
+                            "unit": "ea",
+                            "qty": int(formatted_total / formatted_product_price)
                         }
+                        dhash = hashlib.md5()
+                        dhash.update(json.dumps([product, datetime.now().timestamp()], sort_keys=True).encode())
+                        p_id = dhash.hexdigest()
+                        product["id"] = p_id
                         if product_price != total:
                             qty = formatted_total / formatted_product_price
-                            if qty.is_integer():
-                                product["qty"] = int(formatted_total / formatted_product_price)
-                            else:
-                                product["qty"] = round(formatted_total / formatted_product_price, 2)
+                            if qty.is_integer() is False:
+                                product["qty"] = round(formatted_total / formatted_product_price, 3)
                                 product["unit"] = "kg"
 
                         if formatted_product_price > 35 or formatted_total > 35:
-                            product["pay_attention"] = True
+                            product["payAttention"] = True
 
                         self.result.append(product)
                         sku, total, product_price, qty, product_title = None, None, None, None, None
