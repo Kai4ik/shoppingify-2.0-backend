@@ -29,3 +29,6 @@ app.add_middleware(
 @app.get("/")
 def docs_redirect():
     return RedirectResponse(url="/docs")
+
+
+# TODO: possible usage of AWS API GATEWAY
