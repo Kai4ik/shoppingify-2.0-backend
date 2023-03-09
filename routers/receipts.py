@@ -1,21 +1,70 @@
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, UploadFile, Form, Depends, Request, HTTPException
+from fastapi.security import OAuth2PasswordBearer
 from scanners import Scanner
+from helpers import save_receipt_to_s3, parse_receipt_data, validate_data, create_receipt, create_line_items
+import json
+import jwt
+import os
+import requests
 
-router = APIRouter()
+
+def verify_token(request: Request) -> bool:
+    token = request.headers.get("Authorization").split(" ")[-1]
+    token_kid = jwt.get_unverified_header(token)
+    cognito_issuer = f'https://cognito-idp.{os.getenv("aws_region")}.amazonaws.com/{os.getenv("user_pool_id")}/.well-known/jwks.json'
+    jwks = requests.get(cognito_issuer).json()
+    key = None
+    for jwk in jwks["keys"]:
+        if jwk["kid"] == token_kid["kid"]:
+            key = jwt.get_algorithm_by_name("RS256").from_jwk(json.dumps(jwk))
+
+    if key is not None:
+        try:
+            decoded_token = jwt.decode(token, key, algorithms=["RS256"], audience=os.getenv("user_pool_client_id"))
+            request.state.email = decoded_token["email"]
+        except (jwt.exceptions.InvalidSignatureError, jwt.exceptions.InvalidAudienceError,
+                jwt.exceptions.InvalidTokenError) as e:
+            raise HTTPException(status_code=401, detail="Token verification failed")
+
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+router = APIRouter(dependencies=[Depends(verify_token), Depends(oauth2_scheme)])
 
 
 @router.post("/scanReceipt", tags=["receipts"])
-def scan_receipt(file: UploadFile = File(...)):
-    response = {"success": False, "data": [], "error_message": ""}
+def scan_receipt(request: Request, file: UploadFile = File(...)):
+    r_value = {"success": False, "data": [], "error_message": ""}
     scanner = Scanner(file)
     result, success = scanner.scan_via_veryfi(file)
     if success is True:
-        response["success"] = True
-        response["data"] = result
+        r_value["success"] = True
+        r_value["data"] = result
     else:
         if result["error_message"] == "You have reached your scan limit please contact support@veryfi.com to upgrade your account.":
             message = "Unfortunately receipt can't be scanned because monthly scan limit was reached for Kai's account"
-            response["error_message"] = message
-    return response
+            r_value["error_message"] = message
+    return r_value
 
+
+@router.post("/saveReceipt", tags=["receipts"])
+def save_receipt(request: Request, data: str = Form(), file: UploadFile = File(...), ):
+    # TODO: better error messages
+    r_value = {"success": False,  "error_messages": []}
+    parsed_data = parse_receipt_data(data, request.state.email)
+    validation_result = validate_data(parsed_data)
+    if validation_result["validation_failed"] is False:
+        response = create_receipt(parsed_data)
+        if response["success"]:
+            response = create_line_items(parsed_data["lineItems"])
+            if response["success"] is False:
+                r_value["error_messages"] = response["error_messages"]
+            else:
+                save_receipt_to_s3(request.state.email, parsed_data["receiptNumber"], file)
+        else:
+            r_value["error_messages"] = response["error_messages"]
+
+    else:
+        r_value["error_messages"] = validation_result["errors"]
+
+    return r_value
 
