@@ -1,0 +1,4 @@
+app/.env
+./idea
+__pycache__
+*.json
