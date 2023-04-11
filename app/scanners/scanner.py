@@ -6,6 +6,7 @@ from fuzzywuzzy import fuzz
 import os
 import veryfi
 from veryfi.errors import BadRequest
+from datetime import datetime
 
 # internal modules
 from parsers import Parser
@@ -17,7 +18,7 @@ class Scanner:
         self.result = dict()
         self.file = file
 
-    def scan_via_veryfi(self, file: UploadFile):
+    def scan_via_veryfi(self, file: UploadFile, username: str):
 
         client_id = os.getenv("veryfi_client_id")
         client_secret = os.getenv("veryfi_client_secret")
@@ -26,9 +27,18 @@ class Scanner:
 
         client = veryfi.Client(client_id, client_secret, username, api_key)
         try:
-            # with importlib.resources.open_text("scanners", "data8.json") as json_file:
-                # data = json.load(json_file)
-            data = client.process_document(file)
+            filename = f'{username}_{file.filename}'
+            contents = file.file.read()
+            with open(filename, 'wb') as f:
+                f.write(contents)
+
+            data = client.process_document(filename)
+            # with open(f'{filename}.json', "w") as f:
+            # json.dump(data, f)
+
+            # with importlib.resources.open_text("scanners", f'orozobekov.kai_receipt11.json') as json_file:
+            # data = json.load(json_file)
+
             scanned_merchant = data["vendor"]["name"]
             merchant = self.merchant_matching(scanned_merchant)
             self.result["merchant"] = merchant
@@ -37,18 +47,18 @@ class Scanner:
             self.result["subtotal"] = float(data["subtotal"])
             self.result["total"] = float(data["total"])
             self.result["currency"] = data["currency_code"] if data["currency_code"] else "CAD"
-            self.result["purchase_date"] = data["date"]
+            self.result["purchase_date"] = data["date"] if data["date"] else datetime.now().strftime("%Y-%m-%d %H:%M")
             self.result["payment_type"] = data["payment"]["type"]
             self.result["receipt_number"] = data["invoice_number"]
 
             ocr_text = data["ocr_text"]
             parser = Parser("veryfi", ocr_text, merchant)
             self.result["line_items"] = parser.fetch_data()
+            os.remove(filename)
+
             self.success = True
         except BadRequest as err:
             self.result["error_message"] = err.split(",")[-1].strip()
-
-
 
         return self.result, self.success
 

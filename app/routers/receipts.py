@@ -39,10 +39,10 @@ router = APIRouter(dependencies=[Depends(verify_token), Depends(oauth2_scheme)])
 
 
 @router.post("/scanReceipt", tags=["receipts"])
-def scan_receipt(file: UploadFile = File(...)):
+def scan_receipt(request: Request, file: UploadFile = File(...)):
     r_value = {"success": False, "data": [], "error_message": ""}
     scanner = Scanner(file)
-    result, success = scanner.scan_via_veryfi(file)
+    result, success = scanner.scan_via_veryfi(file, request.state.email)
     if success is True:
         r_value["success"] = True
         r_value["data"] = result
