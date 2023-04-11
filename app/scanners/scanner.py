@@ -26,7 +26,9 @@ class Scanner:
 
         client = veryfi.Client(client_id, client_secret, username, api_key)
         try:
-            data = client.process_document(file)
+            with importlib.resources.open_text("scanners", "data8.json") as json_file:
+                data = json.load(json_file)
+            # data = client.process_document(file)
             scanned_merchant = data["vendor"]["name"]
             merchant = self.merchant_matching(scanned_merchant)
             self.result["merchant"] = merchant
@@ -46,8 +48,7 @@ class Scanner:
         except BadRequest as err:
             self.result["error_message"] = err.split(",")[-1].strip()
 
-        # with importlib.resources.open_text("scanners", "data8.json") as json_file:
-            # data = json.load(json_file)
+
 
         return self.result, self.success
 
